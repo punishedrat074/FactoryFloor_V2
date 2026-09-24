@@ -22,6 +22,14 @@ public class HydraulicPressController : MonoBehaviour
     public Color idleColor = Color.green;
     public Color pressingColor = Color.red;
 
+    [Header("Spatial sound")]
+    public AudioSource pressAudio;
+    public AudioClip pressDownSound;
+    public AudioClip returnSound;
+    [Range(0f, 1f)] public float soundVolume = 0.8f;
+    [Min(0.1f)] public float fullVolumeDistance = 2.5f;
+    [Min(0.1f)] public float audibleDistance = 18f;
+
     enum State { Idle, Pressing, Holding, Returning }
 
     State state = State.Idle;
@@ -34,6 +42,8 @@ public class HydraulicPressController : MonoBehaviour
     float wpHeightWorld, wpHeightLocal, maxSquash;
     float recoveryElapsed, recoveryStartSquash;
     bool recovering;
+    AudioLowPassFilter distanceFilter;
+    AudioListener listener;
 
     void Start()
     {
@@ -55,6 +65,7 @@ public class HydraulicPressController : MonoBehaviour
         bottomPos = topPos + Vector3.down * (downDistance + wpHeightLocal * squashPercent);
         timer = idleTime;
         SetLight(idleColor);
+        ConfigureSound();
     }
 
     void Update()
@@ -68,6 +79,7 @@ public class HydraulicPressController : MonoBehaviour
                 {
                     state = State.Pressing;
                     SetLight(pressingColor);
+                    PlayMotionSound(pressDownSound, Vector3.Distance(topPos, bottomPos) / Mathf.Max(pressSpeed, 0.01f));
                 }
                 break;
 
@@ -85,6 +97,7 @@ public class HydraulicPressController : MonoBehaviour
                     recoveryStartSquash = maxSquash;
                     recoveryElapsed = 0f;
                     recovering = recoveryStartSquash > 0f;
+                    PlayMotionSound(returnSound, Vector3.Distance(bottomPos, topPos) / Mathf.Max(returnSpeed, 0.01f));
                 }
                 break;
 
@@ -94,6 +107,44 @@ public class HydraulicPressController : MonoBehaviour
                 if (ram.localPosition == topPos) { state = State.Idle; timer = idleTime; SetLight(idleColor); }
                 break;
         }
+    }
+
+    void LateUpdate()
+    {
+        if (distanceFilter == null || pressAudio == null) return;
+        if (listener == null) listener = FindFirstObjectByType<AudioListener>();
+        if (listener == null) return;
+
+        float distance = Vector3.Distance(listener.transform.position, pressAudio.transform.position);
+        float t = Mathf.InverseLerp(fullVolumeDistance, audibleDistance, distance);
+        distanceFilter.cutoffFrequency = 22000f * Mathf.Pow(1200f / 22000f, t);
+    }
+
+    void ConfigureSound()
+    {
+        if (pressAudio == null) return;
+
+        pressAudio.playOnAwake = false;
+        pressAudio.loop = false;
+        pressAudio.spatialBlend = 1f;
+        pressAudio.rolloffMode = AudioRolloffMode.Logarithmic;
+        pressAudio.minDistance = Mathf.Max(0.1f, fullVolumeDistance);
+        pressAudio.maxDistance = Mathf.Max(pressAudio.minDistance + 0.1f, audibleDistance);
+        pressAudio.dopplerLevel = 0f;
+        pressAudio.volume = soundVolume;
+
+        distanceFilter = pressAudio.GetComponent<AudioLowPassFilter>();
+        if (distanceFilter == null) distanceFilter = pressAudio.gameObject.AddComponent<AudioLowPassFilter>();
+        listener = FindFirstObjectByType<AudioListener>();
+    }
+
+    void PlayMotionSound(AudioClip clip, float motionDuration)
+    {
+        if (pressAudio == null || clip == null) return;
+        pressAudio.Stop();
+        pressAudio.clip = clip;
+        pressAudio.pitch = Mathf.Clamp(clip.length / Mathf.Max(motionDuration, 0.01f), 0.5f, 2f);
+        pressAudio.Play();
     }
 
     void UpdateWorkpiece()
