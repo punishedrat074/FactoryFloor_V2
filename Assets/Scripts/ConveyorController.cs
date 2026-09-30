@@ -15,9 +15,13 @@ public sealed class ConveyorController : MonoBehaviour
     [Range(0f, 1f)] public float motorVolume = 0.22f;
     [Range(0f, 1f)] public float rollerVolume = 0.12f;
 
-    private const float BeltLength = 3.90f;
-    // Leaves room for the largest blank at both ends of the belt.
-    private const float WorkpieceTravel = 3.40f;
+    private const float BeltLength = 7.20f;
+    // Travel past the nose, drop into the floor tray, pause, then reload.
+    private const float LoadingZ = -3.30f;
+    private const float DischargeZ = 3.96f;
+    private const float FallTravel = .12f;
+    private const float FloorPauseTravel = .30f;
+    private const float WorkpieceTravel = DischargeZ - LoadingZ + FallTravel + FloorPauseTravel;
     private Vector3[] seamRest, pieceRest;
     private Quaternion[] rollerRest;
     private float[] rollerAngles;
@@ -42,7 +46,7 @@ public sealed class ConveyorController : MonoBehaviour
         for (int i = 0; i < rollers.Length; i++)
             if (rollers[i]) rollerRest[i] = rollers[i].localRotation;
 
-        motorSource = CreateSound("ConveyorMotorAudio", new Vector3(.77f, .8f, 1.51f), motorClip, 1.3f, 16f);
+        motorSource = CreateSound("ConveyorMotorAudio", new Vector3(.77f, .8f, 3.16f), motorClip, 1.3f, 16f);
         rollerSource = CreateSound("ConveyorRollerAudio", new Vector3(0f, .84f, 0f), rollerClip, 1f, 12f);
         ready = true;
     }
@@ -94,8 +98,15 @@ public sealed class ConveyorController : MonoBehaviour
         for (int i = 0; i < workpieces.Length; i++)
         {
             if (!workpieces[i]) continue;
-            float center = Mathf.Repeat(workpieceCenters[i] + WorkpieceTravel * .5f + piecePhase, WorkpieceTravel) - WorkpieceTravel * .5f;
-            workpieces[i].localPosition = pieceRest[i] + Vector3.forward * (center - workpieceCenters[i]);
+            float phase = Mathf.Repeat(workpieceCenters[i] - LoadingZ + piecePhase, WorkpieceTravel);
+            float onBelt = DischargeZ - LoadingZ;
+            float fall = Mathf.Clamp01((phase - onBelt) / FallTravel);
+            float center = LoadingZ + Mathf.Min(phase, onBelt + FallTravel);
+            // The entire blank clears the end roller before gravity lowers it.
+            // The tray surface is .08 m high; belt top is .98 m.
+            float drop = .90f * fall * fall;
+            workpieces[i].localPosition = pieceRest[i] +
+                new Vector3(0f, -drop, center - workpieceCenters[i]);
         }
         for (int i = 0; i < rollers.Length; i++)
         {
